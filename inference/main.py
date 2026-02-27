@@ -50,5 +50,5 @@ def predict_wine_quality(data: WineFeatures):
     return {
     "name": "Sujal Chodvadiya",
     "roll_no": "2022BCS0187",
-    "wrong_key": round(float(prediction))
+    "wine_quality": round(float(prediction))
 }
