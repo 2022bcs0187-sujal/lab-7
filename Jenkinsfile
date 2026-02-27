@@ -9,6 +9,7 @@ pipeline {
     }
 
     stages {
+
         stage('Build Docker Image') {
             steps {
                 sh "docker build -t ${IMAGE_NAME}:latest ."
@@ -28,25 +29,73 @@ pipeline {
         stage('Wait for Service') {
             steps {
                 sh """
-        echo "Waiting for API..."
-        sleep 5
-        curl -f http://host.docker.internal:${HOST_PORT}/health
-        """
+                echo "Waiting for API..."
+                sleep 5
+                curl -f http://host.docker.internal:${HOST_PORT}/health
+                """
             }
         }
 
         stage('Valid Test') {
             steps {
                 sh """
-        curl -X POST http://host.docker.internal:${HOST_PORT}/predict \
-        -H "Content-Type: application/json" \
-        -d '{"features":[7.4,0.7,0.0,1.9,0.076,11.0,34.0,0.9978,3.51,0.56,9.4]}'
-        """
+                RESPONSE=\$(curl -s -X POST http://host.docker.internal:${HOST_PORT}/predict \
+                -H "Content-Type: application/json" \
+                -d '{
+                    "fixed_acidity":7.4,
+                    "volatile_acidity":0.7,
+                    "citric_acid":0.0,
+                    "residual_sugar":1.9,
+                    "chlorides":0.076,
+                    "free_sulfur_dioxide":11.0,
+                    "total_sulfur_dioxide":34.0,
+                    "density":0.9978,
+                    "pH":3.51,
+                    "sulphates":0.56,
+                    "alcohol":9.4
+                }')
+
+                echo "Valid API Response: \$RESPONSE"
+
+                echo \$RESPONSE | grep wine_quality || exit 1
+                """
+            }
+        }
+
+        stage('Invalid Test') {
+            steps {
+                sh """
+                STATUS=\$(curl -s -o /dev/null -w "%{http_code}" \
+                -X POST http://host.docker.internal:${HOST_PORT}/predict \
+                -H "Content-Type: application/json" \
+                -d '{"fixed_acidity":7.4}')
+
+                echo "Invalid Test Status Code: \$STATUS"
+
+                if [ "\$STATUS" -ne 422 ]; then
+                    echo "Invalid input test failed"
+                    exit 1
+                else
+                    echo "Invalid input correctly rejected"
+                fi
+                """
+            }
+        }
+
+        stage('Stop Container') {
+            steps {
+                sh "docker rm -f ${CONTAINER_NAME} || true"
             }
         }
     }
 
     post {
+        success {
+            echo "Pipeline PASSED: Model inference validated successfully."
+        }
+        failure {
+            echo "Pipeline FAILED: Inference validation failed."
+        }
         always {
             sh "docker rm -f ${CONTAINER_NAME} || true"
         }
