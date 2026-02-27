@@ -2,14 +2,13 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "wine-quality"
-        CONTAINER_NAME = "wine-test-container"
-        HOST_PORT = "8001"
-        CONTAINER_PORT = "8000"
+        IMAGE_NAME = 'wine-quality'
+        CONTAINER_NAME = 'wine-test-container'
+        HOST_PORT = '8001'
+        CONTAINER_PORT = '8000'
     }
 
     stages {
-
         stage('Build Docker Image') {
             steps {
                 sh "docker build -t ${IMAGE_NAME}:latest ."
@@ -27,22 +26,22 @@ pipeline {
         }
 
         stage('Wait for Service') {
-    steps {
-        sh """
+            steps {
+                sh """
         echo "Waiting for API..."
         sleep 5
         curl -f http://host.docker.internal:${HOST_PORT}/health
         """
-    }
-}
+            }
+        }
 
         stage('Valid Test') {
             steps {
                 sh """
-                curl -X POST http://localhost:${HOST_PORT}/predict \
-                -H "Content-Type: application/json" \
-                -d '{"features":[7.4,0.7,0.0,1.9,0.076,11.0,34.0,0.9978,3.51,0.56,9.4]}'
-                """
+        curl -X POST http://host.docker.internal:${HOST_PORT}/predict \
+        -H "Content-Type: application/json" \
+        -d '{"features":[7.4,0.7,0.0,1.9,0.076,11.0,34.0,0.9978,3.51,0.56,9.4]}'
+        """
             }
         }
     }
