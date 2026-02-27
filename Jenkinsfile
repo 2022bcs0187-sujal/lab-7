@@ -1,104 +1,93 @@
 pipeline {
-    agent any   // 🔥 THIS fixes everything
+    agent any
 
     environment {
-        DOCKERHUB_CREDS = credentials('dockerhub-creds')
-        BEST_ACCURACY   = credentials('best-accuracy')
-        IMAGE_NAME      = '2022bcs0187sujal/wine-quality'
+        IMAGE_NAME = '2022bcs0187sujal/wine-quality:latest'
+        CONTAINER_NAME = 'wine-test-container'
+        PORT = '8000'
     }
 
     stages {
 
-        stage('Checkout') {
+        stage('Pull Image') {
             steps {
-                checkout scm
+                sh 'docker pull $IMAGE_NAME'
             }
         }
 
-        stage('Setup Python Virtual Environment') {
-            agent {
-                docker {
-                    image 'python:3.10-slim'
-                    args '-u root'
-                }
-            }
+        stage('Run Container') {
             steps {
                 sh '''
-                    python3 -m venv venv
-                    . venv/bin/activate
-                    pip install --upgrade pip
-                    pip install -r requirements.txt
+                    docker run -d -p $PORT:8000 --name $CONTAINER_NAME $IMAGE_NAME
                 '''
             }
         }
 
-        stage('Train Model') {
-            agent {
-                docker {
-                    image 'python:3.10-slim'
-                    args '-u root'
-                }
-            }
+        stage('Wait for Service') {
             steps {
                 sh '''
-                    . venv/bin/activate
-                    python scripts/train.py
-                    mkdir -p app/artifacts
-                    cp output/results/results.json app/artifacts/metrics.json
+                    echo "Waiting for API..."
+                    for i in {1..10}
+                    do
+                        if curl -s http://localhost:$PORT/health > /dev/null; then
+                            echo "Service is ready"
+                            exit 0
+                        fi
+                        sleep 3
+                    done
+                    echo "Service failed to start"
+                    exit 1
                 '''
             }
         }
 
-        stage('Read Accuracy') {
-            steps {
-                script {
-                    def metrics = readJSON file: 'app/artifacts/metrics.json'
-                    env.CURRENT_ACCURACY = metrics.accuracy.toString()
-                    echo "Current Accuracy: ${env.CURRENT_ACCURACY}"
-                }
-            }
-        }
-
-        stage('Compare Accuracy') {
-            steps {
-                script {
-                    env.IS_BETTER = 'false'
-                    if (env.CURRENT_ACCURACY.toFloat() > BEST_ACCURACY.toFloat()) {
-                        env.IS_BETTER = 'true'
-                        echo 'New model is better'
-                    } else {
-                        echo 'New model is NOT better'
-                    }
-                }
-            }
-        }
-
-        stage('Build Docker Image') {
-            when {
-                expression { env.IS_BETTER == 'true' }
-            }
+        stage('Valid Inference Test') {
             steps {
                 sh '''
-                    echo $DOCKERHUB_CREDS_PSW | docker login \
-                    -u $DOCKERHUB_CREDS_USR --password-stdin
-                    docker build -t $IMAGE_NAME:latest .
+                    RESPONSE=$(curl -s -X POST http://localhost:$PORT/predict \
+                    -H "Content-Type: application/json" \
+                    -d @tests/valid_input.json)
+
+                    echo "Response: $RESPONSE"
+
+                    echo $RESPONSE | grep wine_quality || exit 1
                 '''
             }
         }
 
-        stage('Push Docker Image') {
-            when {
-                expression { env.IS_BETTER == 'true' }
-            }
+        stage('Invalid Inference Test') {
             steps {
-                sh 'docker push $IMAGE_NAME:latest'
+                sh '''
+                    STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                    -X POST http://localhost:$PORT/predict \
+                    -H "Content-Type: application/json" \
+                    -d @tests/invalid_input.json)
+
+                    echo "Status Code: $STATUS"
+
+                    if [ "$STATUS" -eq 422 ]; then
+                        echo "Invalid input correctly rejected"
+                    else
+                        echo "Invalid test failed"
+                        exit 1
+                    fi
+                '''
+            }
+        }
+
+        stage('Stop Container') {
+            steps {
+                sh '''
+                    docker stop $CONTAINER_NAME
+                    docker rm $CONTAINER_NAME
+                '''
             }
         }
     }
 
     post {
         always {
-            archiveArtifacts artifacts: 'app/artifacts/**', fingerprint: true
+            sh 'docker rm -f $CONTAINER_NAME || true'
         }
     }
 }
