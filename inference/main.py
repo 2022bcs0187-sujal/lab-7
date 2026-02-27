@@ -48,7 +48,7 @@ def predict_wine_quality(data: WineFeatures):
     prediction = model.predict(features)[0]
 
     return {
-        "name": "Sujal Chodvadiya",
-        "roll_no": "2022BCS0187",
-        "wine_quality": round(float(prediction))
-    }
+    "name": "Sujal Chodvadiya",
+    "roll_no": "2022BCS0187",
+    "wrong_key": round(float(prediction))
+}
