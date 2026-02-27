@@ -27,14 +27,14 @@ pipeline {
         }
 
         stage('Wait for Service') {
-            steps {
-                sh """
-                echo "Waiting for API..."
-                sleep 5
-                curl -f http://localhost:${HOST_PORT}/health
-                """
-            }
-        }
+    steps {
+        sh """
+        echo "Waiting for API..."
+        sleep 5
+        curl -f http://host.docker.internal:${HOST_PORT}/health
+        """
+    }
+}
 
         stage('Valid Test') {
             steps {
